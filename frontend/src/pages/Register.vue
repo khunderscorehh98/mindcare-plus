@@ -1,0 +1,108 @@
+<template>
+  <v-container class="fill-height" fluid>
+    <v-row align="center" justify="center">
+      <v-col cols="12" sm="8" md="5" lg="4">
+        <v-card elevation="2" class="rounded-xl">
+          <v-card-title class="justify-center">
+            <div class="text-h5 font-weight-bold">
+              Join <span class="primary--text">MindCare+</span>
+            </div>
+          </v-card-title>
+
+          <v-card-text>
+            <v-alert v-if="error" type="error" dense border="left" class="mb-4">
+              {{ error }}
+            </v-alert>
+
+            <v-form ref="form" v-model="valid" @submit.prevent="onSubmit">
+              <v-text-field
+                v-model="email"
+                label="Email"
+                type="email"
+                prepend-inner-icon="mdi-email"
+                :rules="[rules.required, rules.email]"
+                :disabled="loading"
+                outlined dense clearable autofocus
+              />
+
+              <v-text-field
+                v-model="password"
+                :type="showPass ? 'text' : 'password'"
+                label="Password"
+                prepend-inner-icon="mdi-lock"
+                :append-icon="showPass ? 'mdi-eye-off' : 'mdi-eye'"
+                @click:append="showPass = !showPass"
+                :rules="[rules.required, rules.min(6)]"
+                :disabled="loading"
+                outlined dense
+              />
+
+              <v-btn
+                :loading="loading"
+                :disabled="!valid || loading"
+                color="primary"
+                large block class="text-none"
+                @click="onSubmit"
+              >
+                <v-icon left>mdi-account-plus</v-icon>
+                Create Account
+              </v-btn>
+            </v-form>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+  </v-container>
+</template>
+
+<script>
+import { mapGetters, mapActions } from 'vuex'
+
+export default {
+  name: 'Register',
+  data: () => ({
+    email: '',
+    password: '',
+    showPass: false,
+    loading: false,
+    error: '',
+    valid: false,
+    rules: {
+      required: v => (!!v && String(v).trim().length > 0) || 'This field is required',
+      email: v => /.+@.+\..+/.test(v) || 'Enter a valid email',
+      min: n => v => (v && v.length >= n) || `Minimum ${n} characters`,
+    },
+  }),
+  computed: { ...mapGetters(['isAuthed']) },
+  created() {
+    if (this.isAuthed) this.$router.replace('/dashboard')
+  },
+  methods: {
+    ...mapActions(['registerAction']),
+    async onSubmit() {
+      this.error = ''
+      if (!this.$refs.form || !this.$refs.form.validate()) return
+      this.loading = true
+      try {
+        await this.registerAction({
+          email: this.email.trim(),
+          password: this.password,
+        })
+        // Redirect after register
+        const redirectTo = this.$route.query.redirect || '/dashboard'
+        this.$router.replace(redirectTo).catch(() => {})
+      } catch (e) {
+        this.error =
+          (e && e.response && e.response.data && e.response.data.detail) ||
+          e.message || 'Registration failed.'
+      } finally {
+        this.loading = false
+      }
+    },
+  },
+}
+</script>
+
+<style scoped>
+.text-none { text-transform: none; }
+</style>
