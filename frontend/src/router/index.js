@@ -1,29 +1,96 @@
+// src/router/index.js
 import Vue from 'vue'
-import VueRouter from 'vue-router'
-import HomeView from '../views/HomeView.vue'
+import Router from 'vue-router'
+import store from '@/store'
 
-Vue.use(VueRouter)
+// --- Pages (lazy) ---
+const Home = () => import('@/pages/Home.vue')
+const Login = () => import('@/pages/Login.vue')
+const Register = () => import('@/pages/Register.vue')
+const Dashboard = () => import('@/pages/Dashboard.vue')
+const Chat = () => import('@/pages/Chat.vue')
+const Consult = () => import('@/pages/Consult.vue')
+const Resources = () => import('@/pages/Resources.vue')
+const CheckIns = () => import('@/pages/Checkins.vue')
 
-const routes = [
-  {
-    path: '/',
-    name: 'home',
-    component: HomeView
+Vue.use(Router)
+
+// --- Silence Vue Router 3 "redirected/duplicated navigation" promise rejections ---
+const origPush = Router.prototype.push
+Router.prototype.push = function push (loc, onResolve, onReject) {
+  if (onResolve || onReject) return origPush.call(this, loc, onResolve, onReject)
+  return origPush.call(this, loc).catch(err => err)
+}
+const origReplace = Router.prototype.replace
+Router.prototype.replace = function replace (loc, onResolve, onReject) {
+  if (onResolve || onReject) return origReplace.call(this, loc, onResolve, onReject)
+  return origReplace.call(this, loc).catch(err => err)
+}
+
+// --- Router instance ---
+const router = new Router({
+  mode: 'history',                  // switch to 'hash' if your host can't do history fallback
+  base: process.env.BASE_URL || '/',
+  scrollBehavior () {
+    return { x: 0, y: 0 }
   },
-  {
-    path: '/about',
-    name: 'about',
-    // route level code-splitting
-    // this generates a separate chunk (about.[hash].js) for this route
-    // which is lazy-loaded when the route is visited.
-    component: () => import(/* webpackChunkName: "about" */ '../views/AboutView.vue')
-  }
-]
+  routes: [
+    // Default: land on Resources
+    { path: '/', redirect: { name: 'resources' } },
 
-const router = new VueRouter({
-  mode: 'history',
-  base: process.env.BASE_URL,
-  routes
+    // Optional: keep Home at /home for the marketing/landing content
+    { path: '/home', name: 'home', component: Home, meta: { title: 'MindCare+ · Home' } },
+
+    // Auth
+    { path: '/login', name: 'login', component: Login, meta: { title: 'Sign in · MindCare+', guestOnly: true } },
+    { path: '/register', name: 'register', component: Register, meta: { title: 'Create account · MindCare+', guestOnly: true } },
+
+    // App pages
+    { path: '/dashboard', name: 'dashboard', component: Dashboard, meta: { title: 'Dashboard · MindCare+', requiresAuth: true } },
+    { path: '/chat', name: 'chat', component: Chat, meta: { title: 'AI Chat · MindCare+', requiresAuth: true } },
+    {
+      path: '/consult',
+      name: 'consult',
+      component: Consult,
+      meta: {
+        title: 'Consultation · MindCare+',
+        requiresAuth: true, // premium gating handled by API (HTTP 402)
+      },
+    },
+    { path: '/resources', name: 'resources', component: Resources, meta: { title: 'Resources · MindCare+' } },
+    { path: '/checkin', name: 'checkin', component: CheckIns, meta: { title: 'Daily Check-In · MindCare+', requiresAuth: true } },
+
+    // 404 → Resources (or make a dedicated NotFound page later)
+    { path: '*', redirect: { name: 'resources' } },
+  ],
+})
+
+// --- Helpers ---
+function isAuthed () {
+  return !!(store.getters && store.getters.isAuthenticated)
+}
+
+// --- Global guards ---
+router.beforeEach(async (to, from, next) => {
+  // Title
+  if (to.meta && to.meta.title) document.title = to.meta.title
+
+  // Auth-required routes → try silent refresh once
+  if (to.matched.some(r => r.meta && r.meta.requiresAuth)) {
+    if (!isAuthed()) {
+      try { await store.dispatch('refreshMe') } catch (e) { /* ignore */ }
+    }
+    if (!isAuthed()) {
+      return next({ name: 'login', query: { redirect: to.fullPath } })
+    }
+  }
+
+  // Guest-only routes → bounce authed users to dashboard
+  if (to.matched.some(r => r.meta && r.meta.guestOnly)) {
+    if (isAuthed()) return next({ name: 'dashboard' })
+  }
+
+  return next()
 })
 
 export default router
