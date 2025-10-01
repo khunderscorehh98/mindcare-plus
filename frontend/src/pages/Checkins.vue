@@ -1,49 +1,74 @@
+<!-- src/pages/Checkins.vue -->
 <template>
-  <v-container class="py-6" fluid>
-    <v-row no-gutters class="mb-4" align="center" justify="space-between">
-      <v-col cols="12" md="6">
-        <h2 class="text-h5 font-weight-medium">AI Check-ins</h2>
-        <div class="text-body-2 grey--text">Track mood & stress over time</div>
-      </v-col>
-      <v-col cols="12" md="6" class="d-flex justify-end">
-        <v-dialog v-model="dlg" max-width="480">
-          <template v-slot:activator="{ on }">
-            <v-btn color="primary" dark v-on="on">
-              <v-icon left>mdi-plus</v-icon> New Check-in
-            </v-btn>
-          </template>
+  <default-layout>
+    <!-- Header goes into the layout slot -->
+    <template #header>
+      <v-row no-gutters align="center" justify="space-between">
+        <v-col cols="12" md="6">
+          <h2 class="text-h6 font-weight-medium mb-1">AI Check-ins</h2>
+          <div class="text-body-2 grey--text">Track mood & stress over time</div>
+        </v-col>
+        <v-col cols="12" md="6" class="d-flex justify-end mt-3 mt-md-0">
+          <v-dialog v-model="dlg" max-width="480">
+            <template #activator="{ on }">
+              <v-btn color="primary" dark v-on="on">
+                <v-icon left>mdi-plus</v-icon> New Check-in
+              </v-btn>
+            </template>
 
-          <v-card>
-            <v-card-title class="text-h6">New check-in</v-card-title>
-            <v-card-text>
-              <v-text-field
-                v-model="form.mood" label="Mood (e.g., calm, anxious)" outlined dense
-              />
-              <v-slider
-                v-model="form.stress_level" min="0" max="10" step="1" ticks
-                label="Stress level" class="mt-6"
-              />
-              <v-textarea
-                v-model="form.notes" label="Notes (optional)" outlined dense rows="3"
-              />
-            </v-card-text>
-            <v-card-actions>
-              <v-spacer/>
-              <v-btn text @click="dlg=false">Cancel</v-btn>
-              <v-btn color="primary" :loading="submitting" @click="submit">Save</v-btn>
-            </v-card-actions>
-          </v-card>
-        </v-dialog>
-      </v-col>
-    </v-row>
+            <v-card>
+              <v-card-title class="text-h6">New check-in</v-card-title>
+              <v-card-text>
+                <v-text-field
+                  v-model="form.mood"
+                  label="Mood (e.g., calm, anxious)"
+                  outlined dense
+                />
+                <v-slider
+                  v-model="form.stress_level"
+                  min="0" max="10" step="1"
+                  ticks
+                  label="Stress level"
+                  class="mt-6"
+                />
+                <v-textarea
+                  v-model="form.notes"
+                  label="Notes (optional)"
+                  outlined dense
+                  rows="3"
+                />
+              </v-card-text>
+              <v-card-actions>
+                <v-spacer />
+                <v-btn text @click="dlg = false">Cancel</v-btn>
+                <v-btn color="primary" :loading="submitting" @click="submit">Save</v-btn>
+              </v-card-actions>
+            </v-card>
+          </v-dialog>
+        </v-col>
+      </v-row>
+    </template>
 
-    <v-alert v-if="error" type="error" outlined dense class="mb-4">{{ error }}</v-alert>
+    <!-- Body -->
+    <v-alert
+      v-if="error"
+      type="error"
+      outlined
+      dense
+      class="mb-4"
+    >
+      {{ error }}
+    </v-alert>
 
-    <v-skeleton-loader v-if="loading" type="list-item-three-line, list-item-three-line, list-item-three-line" />
+    <v-skeleton-loader
+      v-if="loading"
+      type="list-item-three-line, list-item-three-line, list-item-three-line"
+      class="mb-4"
+    />
 
     <v-row v-else>
       <v-col cols="12" md="6" lg="4" v-for="c in checkins" :key="c.id">
-        <v-card outlined>
+        <v-card outlined class="rounded-xl h-100 d-flex flex-column">
           <v-list-item>
             <v-list-item-avatar color="primary" class="white--text">
               <span class="subtitle-1">{{ c.stress_level }}</span>
@@ -53,8 +78,10 @@
               <v-list-item-subtitle>{{ niceDate(c.created_at) }}</v-list-item-subtitle>
             </v-list-item-content>
           </v-list-item>
-          <v-divider/>
-          <v-card-text class="text-body-2" v-if="c.notes">{{ c.notes }}</v-card-text>
+          <v-divider />
+          <v-card-text v-if="c.notes" class="text-body-2">
+            {{ c.notes }}
+          </v-card-text>
         </v-card>
       </v-col>
 
@@ -62,14 +89,16 @@
         No check-ins yet — create your first one!
       </v-col>
     </v-row>
-  </v-container>
+  </default-layout>
 </template>
 
 <script>
+import DefaultLayout from '@/layouts/DefaultLayout.vue'
 import api from '@/services/apiClient'
 
 export default {
   name: 'CheckIns',
+  components: { DefaultLayout },
   data: () => ({
     loading: false,
     submitting: false,
@@ -83,21 +112,24 @@ export default {
     }
   }),
   methods: {
-    async load() {
+    async load () {
       this.loading = true
       this.error = ''
       try {
         this.checkins = await api.getRecentCheckIns(12)
       } catch (e) {
+        /* eslint-disable no-console */
         console.error(e)
         this.error = 'Could not load check-ins.'
       } finally {
         this.loading = false
       }
     },
-    async submit() {
+    async submit () {
       if (!this.form.mood.trim()) {
-        this.$toast && this.$toast.error ? this.$toast.error('Please enter a mood') : alert('Please enter a mood')
+        this.$toast && this.$toast.error
+          ? this.$toast.error('Please enter a mood')
+          : alert('Please enter a mood')
         return
       }
       this.submitting = true
@@ -112,16 +144,18 @@ export default {
         await this.load()
       } catch (e) {
         console.error(e)
-        this.$toast && this.$toast.error ? this.$toast.error('Failed to save check-in') : alert('Failed to save check-in')
+        this.$toast && this.$toast.error
+          ? this.$toast.error('Failed to save check-in')
+          : alert('Failed to save check-in')
       } finally {
         this.submitting = false
       }
     },
-    niceDate(iso) {
+    niceDate (iso) {
       try { return new Date(iso).toLocaleString() } catch { return iso }
     }
   },
-  async created() {
+  async created () {
     await this.load()
   }
 }
