@@ -2,9 +2,8 @@
 <template>
   <v-app>
     <!-- Wrap every page in DefaultLayout -->
-    <DefaultLayout>
+    <!-- <DefaultLayout /> -->
       <router-view />
-    </DefaultLayout>
   </v-app>
 </template>
 
