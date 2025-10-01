@@ -1,29 +1,24 @@
 <template>
   <v-app>
     <!-- App Bar -->
-    <v-app-bar app flat color="white">
-      <v-app-bar-nav-icon @click.stop="drawer = !drawer" class="d-sm-none" />
+    <v-app-bar app flat color="white" class="mc-appbar">
+      <v-app-bar-nav-icon
+        class="d-md-none"
+        @click.stop="drawer = !drawer"
+      />
       <v-toolbar-title class="font-weight-bold">
         <span class="primary--text">MindCare+</span>
       </v-toolbar-title>
 
       <v-spacer />
 
-      <!-- Get Help Now -->
-      <v-btn
-        color="red darken-1"
-        class="mr-2"
-        dark
-        @click="goCrisis"
-      >
-        <v-icon left>mdi-alert</v-icon>
-        Get Help Now
+      <v-btn color="red darken-1" dark class="text-none mr-2" @click="goCrisis">
+        <v-icon left>mdi-alert</v-icon> Get Help Now
       </v-btn>
 
-      <!-- User menu -->
       <v-menu offset-y bottom>
-        <template v-slot:activator="{ on, attrs }">
-          <v-btn text v-bind="attrs" v-on="on" class="text-none">
+        <template #activator="{ on, attrs }">
+          <v-btn text class="text-none" v-bind="attrs" v-on="on">
             <v-icon left>mdi-account-circle</v-icon>
             <span class="d-none d-sm-inline">{{ userEmail || 'Account' }}</span>
             <v-chip
@@ -62,6 +57,8 @@
       v-model="drawer"
       :permanent="$vuetify.breakpoint.mdAndUp"
       floating
+      width="256"
+      class="mc-drawer"
     >
       <v-list dense nav>
         <v-list-item two-line class="mb-2">
@@ -80,8 +77,8 @@
           v-for="(item, i) in items"
           :key="i"
           :to="item.to"
-          link
           exact
+          link
           @click="drawer = $vuetify.breakpoint.mdAndUp ? drawer : false"
         >
           <v-list-item-icon><v-icon>{{ item.icon }}</v-icon></v-list-item-icon>
@@ -91,8 +88,8 @@
             v-if="item.badge && showUpgradeBadge && plan !== 'premium'"
             x-small
             color="amber lighten-4"
-            class="text-uppercase"
             label
+            class="text-uppercase"
           >
             pro
           </v-chip>
@@ -102,13 +99,7 @@
       <v-divider class="my-3" />
 
       <div class="px-4 py-2">
-        <v-alert
-          dense
-          outlined
-          type="info"
-          border="left"
-          class="mb-2"
-        >
+        <v-alert dense outlined type="info" border="left" class="mb-2">
           Logged in as <strong>{{ userEmail || 'guest' }}</strong>
         </v-alert>
 
@@ -117,6 +108,7 @@
           block
           color="deep-purple accent-4"
           dark
+          class="text-none"
           @click="goRoute('/upgrade')"
         >
           <v-icon left>mdi-star-circle</v-icon>
@@ -126,22 +118,22 @@
     </v-navigation-drawer>
 
     <!-- Main -->
-    <v-main>
-      <v-container fluid class="py-4">
-        <!-- Optional page header slot -->
+    <v-main class="mc-main grey lighten-5">
+      <!-- center all page content with a global container -->
+      <div class="mc-container">
+        <!-- optional page header slot -->
         <slot name="header"></slot>
 
-        <!-- Page content -->
-        <router-view />
+        <slot />
 
-        <!-- Optional footer slot -->
+        <!-- optional footer slot -->
         <slot name="footer"></slot>
-      </v-container>
+      </div>
     </v-main>
 
     <!-- Footer -->
     <v-footer app padless color="white">
-      <v-container fluid class="px-4 py-2 text-caption grey--text text--darken-1">
+      <div class="mc-container py-2 text-caption grey--text text--darken-1">
         <div class="d-flex align-center">
           <div>&copy; {{ new Date().getFullYear() }} MindCare+. For education/demo only — not a medical device.</div>
           <v-spacer />
@@ -149,13 +141,13 @@
             <a href="https://www.healthline.com/health/mental-health/hotlines" target="_blank" rel="noopener">Global helplines</a>
           </div>
         </div>
-      </v-container>
+      </div>
     </v-footer>
   </v-app>
 </template>
 
 <script>
-import { mapGetters, mapActions } from 'vuex';
+import { mapGetters, mapActions } from 'vuex'
 
 export default {
   name: 'DefaultLayout',
@@ -163,37 +155,54 @@ export default {
     drawer: true,
     showUpgradeBadge: true,
     items: [
-      { text: 'Dashboard', icon: 'mdi-view-dashboard', to: '/dashboard' },
-      { text: 'Chat', icon: 'mdi-chat', to: '/chat' },
-      { text: 'Consultation', icon: 'mdi-account-heart', to: '/consult' },
-      { text: 'Resources', icon: 'mdi-book-open-variant', to: '/resources' },
-      { text: 'Check-ins', icon: 'mdi-clipboard-check', to: '/checkins' },
-      { text: 'Analytics', icon: 'mdi-chart-line', to: '/analytics', badge: true },
+      { text: 'Dashboard',    icon: 'mdi-view-dashboard',   to: '/dashboard' },
+      { text: 'Chat',         icon: 'mdi-chat',             to: '/chat' },
+      { text: 'Consultation', icon: 'mdi-account-heart',    to: '/consult' },
+      { text: 'Resources',    icon: 'mdi-book-open-variant',to: '/resources' },
+      { text: 'Check-ins',    icon: 'mdi-clipboard-check',  to: '/checkin' },
+      { text: 'Analytics',    icon: 'mdi-chart-line',       to: '/analytics', badge: true },
     ],
   }),
   computed: {
-    ...mapGetters(['isAuthed', 'user', 'plan']),
-    userEmail() { return this.user && this.user.email; },
+    ...mapGetters(['me', 'userPlan']),
+    userEmail () {
+      return (this.me && this.me.email) || ''
+    },
+    plan () {
+      return this.userPlan || 'free'
+    },
   },
-  created() {
-    // collapse drawer on small screens by default
-    if (!this.$vuetify.breakpoint.mdAndUp) this.drawer = false;
+  created () {
+    if (!this.$vuetify.breakpoint.mdAndUp) this.drawer = false
   },
   methods: {
-    ...mapActions(['logoutAction']),
-    goRoute(to) { this.$router.push(to); },
-    goCrisis() {
-      // internal crisis page or external helpline list
-      this.$router.push('/crisis').catch(() => {});
-    },
-    async logout() {
-      await this.logoutAction();
-      this.$router.push('/login');
+    ...mapActions(['logout']),
+    goRoute (to) { this.$router.push(to).catch(() => {}) },
+    goCrisis () { this.$router.push('/crisis').catch(() => {}) },
+    async logout () {
+      await this.$store.dispatch('logout')
+      this.$router.push('/login').catch(() => {})
     },
   },
-};
+}
 </script>
 
 <style scoped>
 .text-none { text-transform: none; }
+
+/* main surface spacing */
+.mc-main { padding-top: 16px; }
+
+/* global centered container (used in main + footer) */
+.mc-container {
+  max-width: 1120px;   /* tweak width to taste */
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+/* keep drawer tidy */
+.mc-drawer { border-right: 1px solid rgba(0,0,0,0.06); }
+
+/* slim appbar on desktop */
+.mc-appbar { border-bottom: 1px solid rgba(0,0,0,0.06); }
 </style>
