@@ -1,5 +1,6 @@
 <template>
   <default-layout>
+    <!-- Header -->
     <template v-slot:header>
       <v-row class="mb-4" align="center">
         <v-col cols="12" md="8">
@@ -31,8 +32,7 @@
         </v-col>
       </v-row>
     </template>
-
-    <!-- Top KPIs -->
+    <!-- KPIs -->
     <v-row>
       <v-col cols="12" sm="6" md="3">
         <v-card outlined class="rounded-xl">
@@ -41,7 +41,7 @@
               <v-icon class="mr-2" color="primary">mdi-emoticon-outline</v-icon>
               <div>
                 <div class="text-caption grey--text">Last mood</div>
-                <div class="text-h6">{{ lastMood || '—' }}</div>
+                <div class="text-h6">{{ lastMood || 'No data yet' }}</div>
               </div>
             </div>
           </v-card-text>
@@ -55,7 +55,9 @@
               <v-icon class="mr-2" color="primary">mdi-speedometer</v-icon>
               <div>
                 <div class="text-caption grey--text">Avg. stress (7d)</div>
-                <div class="text-h6">{{ avgStressDisplay }}</div>
+                <div class="text-h6">
+                  {{ avgStressDisplay !== '—' ? avgStressDisplay : 'No data yet' }}
+                </div>
               </div>
             </div>
           </v-card-text>
@@ -67,26 +69,25 @@
           <v-card-text class="py-4">
             <div class="d-flex align-center justify-space-between mb-2">
               <div class="text-subtitle-2">Stress trend (recent)</div>
-              <div class="text-caption grey--text">
-                0 (low) — 10 (high)
-              </div>
+              <div class="text-caption grey--text">0 (low) — 10 (high)</div>
             </div>
             <v-sparkline
+              v-if="checkins.length"
               :value="stressValues"
               :smooth="8"
               :line-width="2"
               :padding="8"
               auto-draw
             />
+            <div v-else class="text-caption grey--text">No data yet</div>
             <div class="text-caption grey--text mt-1">{{ stressDatesLabel }}</div>
           </v-card-text>
         </v-card>
       </v-col>
     </v-row>
 
-    <!-- Main content -->
+    <!-- Upcoming booking -->
     <v-row class="mt-2">
-      <!-- Upcoming booking -->
       <v-col cols="12" md="6" lg="5">
         <v-card outlined class="rounded-xl">
           <v-card-title>
@@ -121,7 +122,7 @@
           </v-card-text>
 
           <v-card-text v-else class="text-body-2">
-            No upcoming bookings.
+            No upcoming bookings yet.
             <v-btn small color="primary" class="ml-1" @click="$router.push('/consult')">
               Book now
             </v-btn>
@@ -129,7 +130,7 @@
         </v-card>
       </v-col>
 
-      <!-- Recent sessions -->
+      <!-- Recent chat sessions -->
       <v-col cols="12" md="6" lg="7">
         <v-card outlined class="rounded-xl">
           <v-card-title>
@@ -141,15 +142,17 @@
             </v-btn>
           </v-card-title>
           <v-divider />
+
           <v-card-text v-if="sessionsLoading">
             <v-skeleton-loader type="table" />
           </v-card-text>
+
           <v-list v-else two-line>
             <template v-if="sessions.length">
               <v-list-item
                 v-for="s in sessions"
                 :key="s.id"
-                @click="$router.push({ name: 'Chat', query: { session: s.id } })"
+                @click="$router.push({ name: 'chat', query: { session: s.id } })"
                 class="session-item"
               >
                 <v-list-item-avatar color="primary" class="white--text">
@@ -161,8 +164,6 @@
                   </v-list-item-title>
                   <v-list-item-subtitle class="grey--text">
                     {{ fmtDateTime(s.created_at) }}
-                    <span v-if="s.mood_at_start"> • mood: {{ s.mood_at_start }}</span>
-                    <span v-if="s.stress_at_start !== null"> • stress: {{ s.stress_at_start }}</span>
                   </v-list-item-subtitle>
                 </v-list-item-content>
                 <v-list-item-icon>
@@ -170,10 +171,11 @@
                 </v-list-item-icon>
               </v-list-item>
             </template>
+
             <v-list-item v-else>
               <v-list-item-content>
                 <v-list-item-title class="text-body-2">
-                  No sessions yet. Start a conversation to create your first session.
+                  No chat sessions yet. Start a conversation to create your first session.
                 </v-list-item-title>
               </v-list-item-content>
             </v-list-item>
@@ -188,7 +190,7 @@
         <v-card outlined class="rounded-xl">
           <v-list two-line>
             <v-subheader>Quick Actions</v-subheader>
-            <v-list-item @click="$router.push('/checkins')">
+            <v-list-item @click="$router.push('/checkin')">
               <v-list-item-avatar tile color="teal" class="white--text">
                 <v-icon dark>mdi-clipboard-check</v-icon>
               </v-list-item-avatar>
@@ -221,7 +223,6 @@
         </v-card>
       </v-col>
 
-      <!-- Info / disclosure -->
       <v-col cols="12" md="8">
         <v-alert dense outlined type="info" border="left" class="rounded-xl">
           MindCare+ is an educational prototype. It is not a medical device and doesn’t replace professional care.
@@ -253,7 +254,6 @@ export default {
     userEmail() { return this.user && this.user.email },
     planColor() { return this.plan === 'premium' ? 'deep-purple accent-4' : 'grey lighten-3' },
     planText() { return this.plan === 'premium' ? 'white' : 'black' },
-
     stressValues() {
       return this.checkins.map(c => Number(c.stress_level || 0)).reverse()
     },
@@ -305,7 +305,6 @@ export default {
       this.bookingLoading = true
       try {
         const mine = await api.api.get('/bookings/my').then(r => r.data || [])
-        // pick most upcoming future slot
         const upcoming = (mine || []).filter(b => new Date(b.slot.start_time) > new Date())
         this.nextBooking = upcoming.sort((a, b) =>
           new Date(a.slot.start_time) - new Date(b.slot.start_time)
@@ -316,8 +315,6 @@ export default {
         this.bookingLoading = false
       }
     },
-
-    // formatting helpers
     fmtDateTime(ts) {
       try { return new Date(ts).toLocaleString() } catch { return ts }
     },
