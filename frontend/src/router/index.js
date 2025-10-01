@@ -12,10 +12,11 @@ const Chat = () => import('@/pages/Chat.vue')
 const Consult = () => import('@/pages/Consult.vue')
 const Resources = () => import('@/pages/Resources.vue')
 const CheckIns = () => import('@/pages/Checkins.vue')
+const Analytics = () => import('@/pages/Analytics.vue') // <— NEW
 
 Vue.use(Router)
 
-// --- Silence Vue Router 3 "redirected/duplicated navigation" promise rejections ---
+// Silence "NavigationDuplicated" rejections on push/replace
 const origPush = Router.prototype.push
 Router.prototype.push = function push (loc, onResolve, onReject) {
   if (onResolve || onReject) return origPush.call(this, loc, onResolve, onReject)
@@ -27,18 +28,15 @@ Router.prototype.replace = function replace (loc, onResolve, onReject) {
   return origReplace.call(this, loc).catch(err => err)
 }
 
-// --- Router instance ---
 const router = new Router({
-  mode: 'history',                  // switch to 'hash' if your host can't do history fallback
+  mode: 'history',
   base: process.env.BASE_URL || '/',
-  scrollBehavior () {
-    return { x: 0, y: 0 }
-  },
+  scrollBehavior () { return { x: 0, y: 0 } },
   routes: [
-    // Default: land on Resources
-    { path: '/', redirect: { name: 'resources' } },
+    // Default: land on Dashboard
+    { path: '/', redirect: { name: 'dashboard' } },
 
-    // Optional: keep Home at /home for the marketing/landing content
+    // Optional marketing page
     { path: '/home', name: 'home', component: Home, meta: { title: 'MindCare+ · Home' } },
 
     // Auth
@@ -52,45 +50,40 @@ const router = new Router({
       path: '/consult',
       name: 'consult',
       component: Consult,
-      meta: {
-        title: 'Consultation · MindCare+',
-        requiresAuth: true, // premium gating handled by API (HTTP 402)
-      },
+      meta: { title: 'Consultation · MindCare+', requiresAuth: true }, // premium gating handled by API (HTTP 402)
     },
     { path: '/resources', name: 'resources', component: Resources, meta: { title: 'Resources · MindCare+' } },
     { path: '/checkin', name: 'checkin', component: CheckIns, meta: { title: 'Daily Check-In · MindCare+', requiresAuth: true } },
 
-    // 404 → Resources (or make a dedicated NotFound page later)
-    { path: '*', redirect: { name: 'resources' } },
+    // NEW: Analytics
+    { path: '/analytics', name: 'analytics', component: Analytics, meta: { title: 'Analytics · MindCare+', requiresAuth: true } },
+
+    // 404 -> Dashboard (or make a dedicated NotFound page later)
+    { path: '*', redirect: { name: 'dashboard' } },
   ],
 })
 
-// --- Helpers ---
+// Helpers
 function isAuthed () {
   return !!(store.getters && store.getters.isAuthenticated)
 }
 
-// --- Global guards ---
+// Global guards
 router.beforeEach(async (to, from, next) => {
-  // Title
   if (to.meta && to.meta.title) document.title = to.meta.title
 
-  // Auth-required routes → try silent refresh once
   if (to.matched.some(r => r.meta && r.meta.requiresAuth)) {
     if (!isAuthed()) {
-      try { await store.dispatch('refreshMe') } catch (e) { /* ignore */ }
+      try { await store.dispatch('refreshMe') } catch (_) {}
     }
-    if (!isAuthed()) {
-      return next({ name: 'login', query: { redirect: to.fullPath } })
-    }
+    if (!isAuthed()) return next({ name: 'login', query: { redirect: to.fullPath } })
   }
 
-  // Guest-only routes → bounce authed users to dashboard
   if (to.matched.some(r => r.meta && r.meta.guestOnly)) {
     if (isAuthed()) return next({ name: 'dashboard' })
   }
 
-  return next()
+  next()
 })
 
 export default router
