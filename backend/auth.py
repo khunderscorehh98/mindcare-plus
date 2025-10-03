@@ -10,7 +10,8 @@ JWT_ALG = os.getenv("JWT_ALG", "HS256")
 # default: 7 days; override with JWT_TTL_SECONDS in .env if needed
 JWT_TTL_SECONDS = int(os.getenv("JWT_TTL_SECONDS", str(60*60*24*7)))
 
-pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
 
 def hash_password(raw: str) -> str:
     return pwd.hash(raw)
@@ -29,3 +30,27 @@ def make_jwt(sub: int, email: str, exp_seconds: int = 60*60*24*7) -> str:
 
 def decode_jwt(token: str):
     return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+
+    # --- FastAPI router for auth ---
+from fastapi import APIRouter, Depends, HTTPException, Header
+from sqlalchemy.orm import Session
+from database import get_db
+from models import User
+from schema import RegisterIn, LoginIn
+
+router = APIRouter()
+
+def _auth_user(authorization: str = Header(None), db: Session = Depends(get_db)) -> User:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    token = authorization.split(" ", 1)[1]
+    try:
+        payload = decode_jwt(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    user = db.query(User).filter(User.id == int(payload["sub"]), User.deleted == False).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+    return {"id": u.id, "email": u.email, "plan": getattr(u, "plan", "free")}

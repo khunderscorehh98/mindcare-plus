@@ -1,8 +1,9 @@
-import os
+import os, requests
 import shutil
 import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
+import re
 
 from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,12 +28,21 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
-# CORS
-origins = os.getenv("CORS_ORIGINS", "*").split(",")
+# Allow local dev and deployed frontend
+_default_origins = [
+    "http://localhost:8080",        # Vue dev
+    "http://206.189.144.251",       # your droplet (http)
+    # "https://your-frontend-domain.com",  # add Firebase domain later
+]
+env_origins = os.getenv("CORS_ORIGINS", "")
+origins = [o.strip() for o in env_origins.split(",") if o.strip()] or _default_origins
+
+allow_creds = "*" not in origins  # credentials only when not wildcard
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=allow_creds,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -40,14 +50,83 @@ app.add_middleware(
 # Load context + model name (path-safe)
 MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 CONTEXT_PATH = Path(__file__).parent / "mindcare_context.txt"
+STYLING_PATH = Path(__file__).parent / "chat_styling.txt"
+
 try:
     MINDCARE_CONTEXT = CONTEXT_PATH.read_text(encoding="utf-8")
 except FileNotFoundError:
     print(f"[context] {CONTEXT_PATH} not found; using empty context")
     MINDCARE_CONTEXT = ""
 
-# -------------------- Helpers --------------------
+try:
+    CHAT_STYLE = STYLING_PATH.read_text(encoding="utf-8")
+except FileNotFoundError:
+    print(f"[styling] {STYLING_PATH} not found; using default style")
+    CHAT_STYLE = "Keep responses short, supportive, and in bullet points if possible."
 
+# -------------------- Helpers --------------------
+_CUT_MARKERS = [
+    "\nUser:", "\nAI:",            # old style
+    "\n<user>", "\n</user>",       # new tags
+    "\n<assistant>",               # model started a new assistant block
+]
+
+_ISO_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+_ASSISTANT_TAGS = re.compile(r"</?assistant>", re.I)
+
+def clean_reply(text: str) -> str:
+    if not text:
+        return ""
+
+    s = text.strip()
+
+    # If the model wrapped everything in <assistant>...</assistant>, unwrap once
+    if s.lower().startswith("<assistant>") and s.lower().endswith("</assistant>"):
+        s = _ASSISTANT_TAGS.sub("", s)
+
+    # Cut off if it starts writing the *next* user turn
+    cut_at = min((s.find(m) for m in _CUT_MARKERS if m in s), default=-1)
+    if cut_at != -1:
+        s = s[:cut_at].rstrip()
+
+    # Remove leftover assistant/user tags & labels
+    s = _ASSISTANT_TAGS.sub("", s)
+    s = re.sub(r"</?(user)>", "", s, flags=re.I)
+    s = s.replace("AI:", "").replace("User:", "").replace("Assistant:", "")
+
+    # Remove stray ISO timestamps (sometimes echoed inside reply)
+    s = _ISO_RE.sub("", s)
+
+    # Heuristic: if it tries to reintroduce itself ("Hello, I'm MindCare+") at the start,
+    # only keep that in the *very first* message (optional).
+    s = re.sub(r"(?i)^hello[,!].{0,60}i[’']?m\s+mindcare\+?.*?\.\s*", "", s).lstrip()
+
+    # Collapse spaces/newlines
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+
+    return s.strip()
+
+
+def clean_reply(text: str) -> str:
+    if not text:
+        return ""
+    # cut at next turn markers
+    cut_at = min((text.find(m) for m in _CUT_MARKERS if m in text), default=-1)
+    if cut_at != -1:
+        text = text[:cut_at]
+
+    # strip tags & echoes
+    text = re.sub(r"</?(user|assistant)>", "", text, flags=re.I)
+    text = text.replace("AI:", "").replace("User:", "")
+
+    # drop stray ISO timestamps
+    text = _ISO_RE.sub("", text)
+
+    # collapse whitespace
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 def run_ollama(model: str, prompt: str, timeout_sec: int = 120) -> str:
     """Run `ollama run <model>` and return stdout (trimmed) or '' on error.
     Includes basic logging and a PATH sanity check.
@@ -78,6 +157,35 @@ def run_ollama(model: str, prompt: str, timeout_sec: int = 120) -> str:
         print("[ollama] unexpected error:", e)
         return ""
 
+def run_openai(prompt: str, timeout_sec: int | None = None) -> str:
+    key = os.getenv("OPENAI_API_KEY", "")
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    max_tokens = int(os.getenv("OPENAI_MAX_TOKENS", "220"))
+    temperature = float(os.getenv("OPENAI_TEMPERATURE", "0.6"))
+    tout = timeout_sec or int(os.getenv("OPENAI_TIMEOUT", "30"))
+    if not key:
+        print("[openai] missing OPENAI_API_KEY"); return ""
+    try:
+        r = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": f"You are MindCare+, an AI for mental health in Brunei.\n\nStyle guide:\n{CHAT_STYLE}\n\nKnowledge:\n{MINDCARE_CONTEXT}"},
+                    {"role": "user", "content": prompt},
+                ],
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+            },
+            timeout=tout,
+        )
+        r.raise_for_status()
+        data = r.json()
+        return (data["choices"][0]["message"]["content"] or "").strip()
+    except Exception as e:
+        print("[openai] error:", e)
+        return ""
 
 def utcnow() -> datetime:
     return datetime.utcnow()
@@ -155,35 +263,59 @@ def billing_upgrade(body: dict, u: User = Depends(auth_user), db: Session = Depe
 
 # -------------------- Chat prompt builder --------------------
 
-def build_prompt(message: str, history: list[ChatTurn] | None = None) -> str:
-    hist = ""
-    for turn in (history or []):
-        who = "User" if turn.role == "user" else "AI"
-        hist += f"{who}: {turn.content}\n"
-    return f"""
-You are MindCare+, an AI chatbot for mental health in Brunei.
-Use the following knowledge when answering. If unrelated, gently redirect to mental health support.
+MAX_TURNS = 6  # last 6 messages (3 user+3 ai pairs)
 
-Knowledge:
-{MINDCARE_CONTEXT}
+def build_prompt(message: str, history: list[ChatTurn] | list[dict] | None = None) -> str:
+    def role_of(t):  # accepts ChatTurn or dict
+        return (getattr(t, "role", None) or (t.get("role") if isinstance(t, dict) else "")) or ""
+    def text_of(t):
+        return (getattr(t, "content", None) or (t.get("content") if isinstance(t, dict) else "")) or ""
 
-Conversation so far:
-{hist}
-User: {message}
-AI:
-"""
+    # optional external style
+    style = ""
+    try:
+        with open("/opt/mindcare/app/backend/chat_styling.txt", "r", encoding="utf-8") as f:
+            style = f.read().strip()
+    except Exception:
+        pass
+
+    sys_preamble = (
+        "You are MindCare+, a concise, supportive mental-health assistant for Brunei. "
+        "Be practical, empathetic, and **brief**.\n"
+        + (f"\nStyle:\n{style}\n" if style else "")
+    )
+
+    parts = [f"<<SYS>>\n{sys_preamble}\n<</SYS>>"]
+    turns = (history or [])[-MAX_TURNS:]
+    for t in turns:
+        if role_of(t) == "user":
+            parts.append(f"<user>{text_of(t)}</user>")
+        else:
+            parts.append(f"<assistant>{text_of(t)}</assistant>")
+    parts.append(f"<user>{message}</user>\n<assistant>")
+    return "\n".join(parts)
 
 # -------------------- Routes: Public Chat (stateless demo) --------------------
+def generate_reply(prompt: str) -> str:
+    provider = os.getenv("PROVIDER", "ollama").lower()
+    if provider == "openai":
+        return run_openai(prompt, timeout_sec=int(os.getenv("OPENAI_TIMEOUT", "30"))) or ""
+    # default → ollama
+    model = os.getenv("OLLAMA_MODEL", MODEL)
+    return run_ollama(model, prompt, timeout_sec=int(os.getenv("OLLAMA_TIMEOUT", "60"))) or ""
+
+def normalize_reply(text: str) -> str:
+    cleaned = clean_reply(text or "")
+    if not cleaned or cleaned in {".", "...", "…"}:
+        provider = os.getenv("PROVIDER", "ollama").lower()
+        model = os.getenv("OPENAI_MODEL") if provider == "openai" else os.getenv("OLLAMA_MODEL", MODEL)
+        return f"I couldn’t generate a reply right now. If this keeps happening, please check the model '{model}' is installed and reachable."
+    return cleaned
 
 @app.post("/chat", response_model=ChatOut)
 def chat(body: ChatIn, db: Session = Depends(get_db)):
     prompt = build_prompt(body.message, body.history)
-    reply = run_ollama(MODEL, prompt)
-    if not reply or reply.strip() in {".", "...", "…"}:
-        reply = (
-            "I couldn’t generate a reply right now. If this keeps happening, "
-            f"please check that the Ollama model ‘{MODEL}’ is installed and reachable."
-        )
+    reply = normalize_reply(generate_reply(prompt))
     return {"reply": reply}
 
 # -------------------- Routes: Chat Sessions (multi-session, persisted) --------------------
@@ -294,7 +426,6 @@ def send_in_session(sid: int, body: ChatIn, u: User = Depends(auth_user), db: Se
     if not sess:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Build history from DB
     prev_msgs = (
         db.query(ChatMessage)
         .filter(ChatMessage.session_id == sid)
@@ -304,10 +435,9 @@ def send_in_session(sid: int, body: ChatIn, u: User = Depends(auth_user), db: Se
     history = [{"role": m.role, "content": m.content} for m in prev_msgs]
 
     prompt = build_prompt(body.message, history)
-    reply = run_ollama(MODEL, prompt) or "I couldn’t generate a reply right now."
+    reply = normalize_reply(generate_reply(prompt))
 
-    # Persist both turns
-    db.add(ChatMessage(user_id=u.id, session_id=sid, role=ChatRole.user, content=body.message))
+    db.add(ChatMessage(user_id=u.id, session_id=sid, role=ChatRole.user,      content=body.message))
     db.add(ChatMessage(user_id=u.id, session_id=sid, role=ChatRole.assistant, content=reply))
     db.commit()
 
