@@ -1,21 +1,43 @@
 <template>
   <v-app>
     <!-- App Bar -->
-    <v-app-bar app flat color="white" class="mc-appbar">
-      <v-app-bar-nav-icon
-        class="d-md-none"
-        @click.stop="drawer = !drawer"
-      />
+    <v-app-bar
+      app
+      flat
+      color="white"
+      class="mc-appbar"
+      :dense="isMobile"
+      elevate-on-scroll
+    >
+      <v-app-bar-nav-icon class="d-md-none" @click.stop="drawer = !drawer" />
+
       <v-toolbar-title class="font-weight-bold">
         <span class="primary--text">MindCare+</span>
       </v-toolbar-title>
 
       <v-spacer />
 
-      <v-btn color="red darken-1" dark class="text-none mr-2" @click="goCrisis">
+      <!-- Crisis: icon on mobile, full button on desktop -->
+      <v-btn
+        v-if="!isMobile"
+        color="red darken-1"
+        dark
+        class="text-none mr-2"
+        @click="helpDialog = true"
+      >
         <v-icon left>mdi-alert</v-icon> Get Help Now
       </v-btn>
+      <v-btn
+        v-else
+        icon
+        color="red darken-1"
+        @click="helpDialog = true"
+        aria-label="Get help now"
+      >
+        <v-icon>mdi-alert</v-icon>
+      </v-btn>
 
+      <!-- Account menu -->
       <v-menu offset-y bottom>
         <template #activator="{ on, attrs }">
           <v-btn text class="text-none" v-bind="attrs" v-on="on">
@@ -55,7 +77,8 @@
     <v-navigation-drawer
       app
       v-model="drawer"
-      :permanent="$vuetify.breakpoint.mdAndUp"
+      :temporary="isMobile"
+      :permanent="!isMobile"
       floating
       width="256"
       class="mc-drawer"
@@ -71,15 +94,15 @@
           </v-list-item-content>
         </v-list-item>
 
-        <v-divider class="mb-2"></v-divider>
+        <v-divider class="mb-2" />
 
         <v-list-item
-          v-for="(item, i) in items"
+          v-for="(item, i) in sideItems"
           :key="i"
           :to="item.to"
           exact
           link
-          @click="drawer = $vuetify.breakpoint.mdAndUp ? drawer : false"
+          @click="isMobile ? drawer = false : null"
         >
           <v-list-item-icon><v-icon>{{ item.icon }}</v-icon></v-list-item-icon>
           <v-list-item-title>{{ item.text }}</v-list-item-title>
@@ -119,14 +142,9 @@
 
     <!-- Main -->
     <v-main class="mc-main grey lighten-5">
-      <!-- center all page content with a global container -->
       <div class="mc-container">
-        <!-- optional page header slot -->
         <slot name="header"></slot>
-
         <slot />
-
-        <!-- optional footer slot -->
         <slot name="footer"></slot>
       </div>
     </v-main>
@@ -137,12 +155,72 @@
         <div class="d-flex align-center">
           <div>&copy; {{ new Date().getFullYear() }} MindCare+. For education/demo only — not a medical device.</div>
           <v-spacer />
-          <div>
-            <a href="https://www.healthline.com/health/mental-health/hotlines" target="_blank" rel="noopener">Global helplines</a>
+          <div class="d-none d-sm-block">
+            <a
+              href="https://www.healthline.com/health/mental-health/hotlines"
+              target="_blank"
+              rel="noopener"
+            >Global helplines</a>
           </div>
         </div>
       </div>
     </v-footer>
+
+    <!-- Crisis confirm dialog -->
+    <v-dialog v-model="helpDialog" max-width="520" persistent>
+      <v-card class="rounded-xl">
+        <v-card-title class="text-h6 font-weight-bold">
+          Urgent help
+        </v-card-title>
+
+        <v-card-text class="pt-2">
+          <v-alert type="warning" dense outlined border="left" class="mb-4">
+            This action can initiate a direct phone call to a helpline.
+          </v-alert>
+
+          <p class="mb-3">
+            If you’re in immediate danger, please call your local emergency number.
+          </p>
+
+          <v-list dense two-line class="rounded-lg">
+            <v-list-item
+              v-for="(h, i) in helplines"
+              :key="i"
+              @click="callNumber(h.number)"
+            >
+              <v-list-item-avatar color="red darken-1" size="36">
+                <v-icon color="white">mdi-phone</v-icon>
+              </v-list-item-avatar>
+              <v-list-item-content>
+                <v-list-item-title class="font-weight-medium">
+                  {{ h.label }}
+                </v-list-item-title>
+                <v-list-item-subtitle class="grey--text text--darken-1">
+                  {{ h.number }}
+                </v-list-item-subtitle>
+              </v-list-item-content>
+              <v-list-item-action>
+                <v-btn icon :aria-label="`Call ${h.label}`">
+                  <v-icon>mdi-arrow-right</v-icon>
+                </v-btn>
+              </v-list-item-action>
+            </v-list-item>
+          </v-list>
+
+          <p class="mt-4 mb-0 text-caption grey--text">
+            Not an emergency? You can also view our help page with more options.
+          </p>
+        </v-card-text>
+
+        <v-card-actions class="px-4 pb-4">
+          <v-spacer />
+          <v-btn text class="text-none" @click="helpDialog = false">Cancel</v-btn>
+          <v-btn color="primary" class="text-none" @click="goCrisis">
+            View help page
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-app>
 </template>
 
@@ -154,13 +232,19 @@ export default {
   data: () => ({
     drawer: true,
     showUpgradeBadge: true,
+    helpDialog: false,
+    // Replace with verified local numbers for your region
+    helplines: [
+      { label: 'Emergency Services', number: '999' },
+      { label: 'Mental Health Support', number: '+673-XXX-XXXX' },
+    ],
     items: [
-      { text: 'Dashboard',    icon: 'mdi-view-dashboard',   to: '/dashboard' },
-      { text: 'Chat',         icon: 'mdi-chat',             to: '/chat' },
-      { text: 'Consultation', icon: 'mdi-account-heart',    to: '/consult' },
-      { text: 'Resources',    icon: 'mdi-book-open-variant',to: '/resources' },
-      { text: 'Check-ins',    icon: 'mdi-clipboard-check',  to: '/checkin' },
-      { text: 'Analytics',    icon: 'mdi-chart-line',       to: '/analytics', badge: true },
+      { text: 'Dashboard',    icon: 'mdi-view-dashboard',    to: '/dashboard' },
+      { text: 'Chat',         icon: 'mdi-chat',              to: '/chat' },
+      { text: 'Check-ins',    icon: 'mdi-clipboard-check',   to: '/checkin' },
+      { text: 'Resources',    icon: 'mdi-book-open-variant', to: '/resources' },
+      { text: 'Consultation', icon: 'mdi-account-heart',     to: '/consult',  premium: true },
+      { text: 'Analytics',    icon: 'mdi-chart-line',        to: '/analytics', premium: true, badge: true },
     ],
   }),
   computed: {
@@ -171,14 +255,28 @@ export default {
     plan () {
       return this.userPlan || 'free'
     },
+    isMobile () {
+      return this.$vuetify.breakpoint.smAndDown
+    },
+    sideItems () {
+      if (this.plan === 'premium') return this.items
+      return this.items.filter(i => !i.premium)
+    },
   },
   created () {
-    if (!this.$vuetify.breakpoint.mdAndUp) this.drawer = false
+    this.drawer = !this.isMobile
   },
   methods: {
     ...mapActions(['logout']),
     goRoute (to) { this.$router.push(to).catch(() => {}) },
-    goCrisis () { this.$router.push('/crisis').catch(() => {}) },
+    goCrisis () {
+      this.helpDialog = false
+      this.$router.push('/crisis').catch(() => {})
+    },
+    callNumber (num) {
+      this.helpDialog = false
+      setTimeout(() => { window.location.href = `tel:${num}` }, 120)
+    },
     async logout () {
       await this.$store.dispatch('logout')
       this.$router.push('/login').catch(() => {})
@@ -189,20 +287,12 @@ export default {
 
 <style scoped>
 .text-none { text-transform: none; }
-
-/* main surface spacing */
 .mc-main { padding-top: 16px; }
-
-/* global centered container (used in main + footer) */
 .mc-container {
-  max-width: 1120px;   /* tweak width to taste */
+  max-width: 1120px;
   margin: 0 auto;
   padding: 24px 16px;
 }
-
-/* keep drawer tidy */
 .mc-drawer { border-right: 1px solid rgba(0,0,0,0.06); }
-
-/* slim appbar on desktop */
 .mc-appbar { border-bottom: 1px solid rgba(0,0,0,0.06); }
 </style>

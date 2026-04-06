@@ -65,14 +65,23 @@ except FileNotFoundError:
     CHAT_STYLE = "Keep responses short, supportive, and in bullet points if possible."
 
 # -------------------- Helpers --------------------
+_ASSISTANT_TAGS = re.compile(r"</?assistant>", flags=re.I)
+
 _CUT_MARKERS = [
-    "\nUser:", "\nAI:",            # old style
-    "\n<user>", "\n</user>",       # new tags
-    "\n<assistant>",               # model started a new assistant block
+    "\nUser:", "\nAI:",            # old style markers
+    "\n<user>", "\n</user>",       # tag-style echoes
+    "\n<assistant>",               # model starts next assistant block
 ]
 
 _ISO_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
-_ASSISTANT_TAGS = re.compile(r"</?assistant>", re.I)
+
+_FAKE_USER_Q = re.compile(r"(?i)^\s*(can\s+(you|u)|which|what|how|where|when|why)\b.*\?\s*$")
+
+def _strip_fake_user_questions(s: str) -> str:
+    # Remove any single-line user-like questions the model hallucinated
+    lines = [ln for ln in s.splitlines() if not _FAKE_USER_Q.match(ln.strip())]
+    return "\n".join(lines).strip()
+
 
 def clean_reply(text: str) -> str:
     if not text:
@@ -80,53 +89,38 @@ def clean_reply(text: str) -> str:
 
     s = text.strip()
 
-    # If the model wrapped everything in <assistant>...</assistant>, unwrap once
+    # unwrap single <assistant>...</assistant>
     if s.lower().startswith("<assistant>") and s.lower().endswith("</assistant>"):
         s = _ASSISTANT_TAGS.sub("", s)
 
-    # Cut off if it starts writing the *next* user turn
+    # cut at next-turn markers
     cut_at = min((s.find(m) for m in _CUT_MARKERS if m in s), default=-1)
     if cut_at != -1:
         s = s[:cut_at].rstrip()
 
-    # Remove leftover assistant/user tags & labels
+    # strip tags & labels
     s = _ASSISTANT_TAGS.sub("", s)
     s = re.sub(r"</?(user)>", "", s, flags=re.I)
     s = s.replace("AI:", "").replace("User:", "").replace("Assistant:", "")
 
-    # Remove stray ISO timestamps (sometimes echoed inside reply)
+    # drop stray timestamps
     s = _ISO_RE.sub("", s)
 
-    # Heuristic: if it tries to reintroduce itself ("Hello, I'm MindCare+") at the start,
-    # only keep that in the *very first* message (optional).
+    # de-dupe intro only if it shows up at the very start
     s = re.sub(r"(?i)^hello[,!].{0,60}i[’']?m\s+mindcare\+?.*?\.\s*", "", s).lstrip()
 
-    # Collapse spaces/newlines
+    # remove any hallucinated user-like questions
+    s = _strip_fake_user_questions(s)
+    if _FAKE_USER_Q.match(s):
+        s = ""  # nuke entire reply if it is itself a fake user question
+
+    # collapse whitespace
     s = re.sub(r"[ \t]{2,}", " ", s)
     s = re.sub(r"\n{3,}", "\n\n", s)
 
     return s.strip()
 
 
-def clean_reply(text: str) -> str:
-    if not text:
-        return ""
-    # cut at next turn markers
-    cut_at = min((text.find(m) for m in _CUT_MARKERS if m in text), default=-1)
-    if cut_at != -1:
-        text = text[:cut_at]
-
-    # strip tags & echoes
-    text = re.sub(r"</?(user|assistant)>", "", text, flags=re.I)
-    text = text.replace("AI:", "").replace("User:", "")
-
-    # drop stray ISO timestamps
-    text = _ISO_RE.sub("", text)
-
-    # collapse whitespace
-    text = re.sub(r"[ \t]{2,}", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
 def run_ollama(model: str, prompt: str, timeout_sec: int = 120) -> str:
     """Run `ollama run <model>` and return stdout (trimmed) or '' on error.
     Includes basic logging and a PATH sanity check.
@@ -263,7 +257,7 @@ def billing_upgrade(body: dict, u: User = Depends(auth_user), db: Session = Depe
 
 # -------------------- Chat prompt builder --------------------
 
-MAX_TURNS = 6  # last 6 messages (3 user+3 ai pairs)
+MAX_TURNS = 10  # keep last 10 turns in addition to the very first user message
 
 def build_prompt(message: str, history: list[ChatTurn] | list[dict] | None = None) -> str:
     def role_of(t):  # accepts ChatTurn or dict
@@ -280,42 +274,62 @@ def build_prompt(message: str, history: list[ChatTurn] | list[dict] | None = Non
         pass
 
     sys_preamble = (
-        "You are MindCare+, a concise, supportive mental-health assistant for Brunei. "
-        "Be practical, empathetic, and **brief**.\n"
-        + (f"\nStyle:\n{style}\n" if style else "")
-    )
+    "You are MindCare+, a supportive mental health chatbot for Brunei. "
+    "Always answer **directly as MindCare+**. "
+    "Be empathetic, concise, and practical. "
+    "Do not explain how you are generating answers. "
+    "Do not say 'Here’s an example'. "
+    "Just reply as if you are speaking to the user.\n"
+    + (f"\nStyle:\n{style}\n" if style else "")
+)
 
     parts = [f"<<SYS>>\n{sys_preamble}\n<</SYS>>"]
-    turns = (history or [])[-MAX_TURNS:]
-    for t in turns:
-        if role_of(t) == "user":
-            parts.append(f"<user>{text_of(t)}</user>")
-        else:
-            parts.append(f"<assistant>{text_of(t)}</assistant>")
+
+    turns = history or []
+    if turns:
+        # always include the very first user message if available
+        first_user = next((t for t in turns if role_of(t) == "user"), None)
+        if first_user:
+            parts.append(f"<user>{text_of(first_user)}</user>")
+
+        # then include the last N turns
+        for t in turns[-MAX_TURNS:]:
+            if role_of(t) == "user":
+                parts.append(f"<user>{text_of(t)}</user>")
+            else:
+                parts.append(f"<assistant>{text_of(t)}</assistant>")
+
+    # finally, append the current message
     parts.append(f"<user>{message}</user>\n<assistant>")
+
     return "\n".join(parts)
 
 # -------------------- Routes: Public Chat (stateless demo) --------------------
 def generate_reply(prompt: str) -> str:
     provider = os.getenv("PROVIDER", "ollama").lower()
     if provider == "openai":
-        return run_openai(prompt, timeout_sec=int(os.getenv("OPENAI_TIMEOUT", "30"))) or ""
-    # default → ollama
-    model = os.getenv("OLLAMA_MODEL", MODEL)
-    return run_ollama(model, prompt, timeout_sec=int(os.getenv("OLLAMA_TIMEOUT", "60"))) or ""
+        raw = run_openai(prompt, timeout_sec=int(os.getenv("OPENAI_TIMEOUT", "30"))) or ""
+    else:
+        model = os.getenv("OLLAMA_MODEL", MODEL)
+        raw = run_ollama(model, prompt, timeout_sec=int(os.getenv("OLLAMA_TIMEOUT", "60"))) or ""
+    return clean_reply(raw)
 
 def normalize_reply(text: str) -> str:
-    cleaned = clean_reply(text or "")
-    if not cleaned or cleaned in {".", "...", "…"}:
+    text = clean_reply(text or "")          # <-- sanitize first
+    if not text or text in {".", "...", "…"}:
         provider = os.getenv("PROVIDER", "ollama").lower()
         model = os.getenv("OPENAI_MODEL") if provider == "openai" else os.getenv("OLLAMA_MODEL", MODEL)
-        return f"I couldn’t generate a reply right now. If this keeps happening, please check the model '{model}' is installed and reachable."
-    return cleaned
+        return (
+            "I couldn’t generate a reply right now. If this keeps happening, "
+            f"please check the model '{model}' is installed and reachable."
+        )
+    return text
 
 @app.post("/chat", response_model=ChatOut)
 def chat(body: ChatIn, db: Session = Depends(get_db)):
     prompt = build_prompt(body.message, body.history)
-    reply = normalize_reply(generate_reply(prompt))
+    raw = generate_reply(prompt)
+    reply = normalize_reply(clean_reply(raw))
     return {"reply": reply}
 
 # -------------------- Routes: Chat Sessions (multi-session, persisted) --------------------
@@ -435,8 +449,10 @@ def send_in_session(sid: int, body: ChatIn, u: User = Depends(auth_user), db: Se
     history = [{"role": m.role, "content": m.content} for m in prev_msgs]
 
     prompt = build_prompt(body.message, history)
-    reply = normalize_reply(generate_reply(prompt))
+    raw = generate_reply(prompt)
+    reply = normalize_reply(clean_reply(raw))
 
+    # persist the *cleaned* assistant message
     db.add(ChatMessage(user_id=u.id, session_id=sid, role=ChatRole.user,      content=body.message))
     db.add(ChatMessage(user_id=u.id, session_id=sid, role=ChatRole.assistant, content=reply))
     db.commit()

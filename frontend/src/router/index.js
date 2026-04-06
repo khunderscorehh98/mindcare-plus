@@ -12,7 +12,10 @@ const Chat = () => import('@/pages/Chat.vue')
 const Consult = () => import('@/pages/Consult.vue')
 const Resources = () => import('@/pages/Resources.vue')
 const CheckIns = () => import('@/pages/Checkins.vue')
-const Analytics = () => import('@/pages/Analytics.vue') // <— NEW
+const Analytics = () => import('@/pages/Analytics.vue')
+
+// (optional) if you have an Upgrade page, uncomment this and route below
+// const Upgrade = () => import('@/pages/Upgrade.vue')
 
 Vue.use(Router)
 
@@ -33,10 +36,8 @@ const router = new Router({
   base: process.env.BASE_URL || '/',
   scrollBehavior () { return { x: 0, y: 0 } },
   routes: [
-    // Default: land on Dashboard
     { path: '/', redirect: { name: 'dashboard' } },
 
-    // Optional marketing page
     { path: '/home', name: 'home', component: Home, meta: { title: 'MindCare+ · Home' } },
 
     // Auth
@@ -50,17 +51,19 @@ const router = new Router({
       path: '/consult',
       name: 'consult',
       component: Consult,
-      meta: { title: 'Consultation · MindCare+', requiresAuth: true }, // premium gating handled by API (HTTP 402)
+      meta: { title: 'Consultation · MindCare+', requiresAuth: true } // API will still enforce plan
     },
     { path: '/resources', name: 'resources', component: Resources, meta: { title: 'Resources · MindCare+' } },
     { path: '/checkin', name: 'checkin', component: CheckIns, meta: { title: 'Daily Check-In · MindCare+', requiresAuth: true } },
 
-    // NEW: Analytics
-    { path: '/analytics', name: 'analytics', component: Analytics, meta: { title: 'Analytics · MindCare+', requiresAuth: true } },
+    // PREMIUM route – gate with requiresPlan
+    { path: '/analytics', name: 'analytics', component: Analytics, meta: { title: 'Analytics · MindCare+', requiresAuth: true, requiresPlan: 'premium' } },
 
-    // 404 -> Dashboard (or make a dedicated NotFound page later)
-    { path: '*', redirect: { name: 'dashboard' } },
-  ],
+    // (optional) Upgrade page
+    // { path: '/upgrade', name: 'upgrade', component: Upgrade, meta: { title: 'Upgrade · MindCare+' } },
+
+    { path: '*', redirect: { name: 'dashboard' } }
+  ]
 })
 
 // Helpers
@@ -68,10 +71,28 @@ function isAuthed () {
   return !!(store.getters && store.getters.isAuthenticated)
 }
 
+function currentPlan () {
+  // Try store first (adjust getter / path if your store differs)
+  const fromStore = (store.getters && (store.getters.me?.plan || store.getters.user?.plan)) ||
+                    (store.state && store.state.auth && store.state.auth.user && store.state.auth.user.plan)
+  if (fromStore) return fromStore
+
+  // Fallback to localStorage
+  try {
+    const raw = localStorage.getItem('mc_user')
+    if (raw) {
+      const u = JSON.parse(raw)
+      return u?.plan || 'free'
+    }
+  } catch (_) {}
+  return 'free'
+}
+
 // Global guards
 router.beforeEach(async (to, from, next) => {
   if (to.meta && to.meta.title) document.title = to.meta.title
 
+  // auth gate
   if (to.matched.some(r => r.meta && r.meta.requiresAuth)) {
     if (!isAuthed()) {
       try { await store.dispatch('refreshMe') } catch (_) {}
@@ -79,8 +100,21 @@ router.beforeEach(async (to, from, next) => {
     if (!isAuthed()) return next({ name: 'login', query: { redirect: to.fullPath } })
   }
 
+  // guest-only gate
   if (to.matched.some(r => r.meta && r.meta.guestOnly)) {
     if (isAuthed()) return next({ name: 'dashboard' })
+  }
+
+  // plan gate (e.g., /analytics)
+  const requiresPlan = to.matched.find(r => r.meta && r.meta.requiresPlan)?.meta?.requiresPlan
+  if (requiresPlan) {
+    const plan = currentPlan()
+    if (plan !== requiresPlan) {
+      // If you have an Upgrade page, send them there:
+      // return next({ name: 'upgrade', query: { from: to.fullPath } })
+      // Otherwise, bounce to dashboard with a hint:
+      return next({ name: 'dashboard', query: { need_premium: '1' } })
+    }
   }
 
   next()

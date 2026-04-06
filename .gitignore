@@ -1,14 +1,68 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.db
-.venv/
-.env
+# ─── macOS ───────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
 
-# Node
-node_modules/
+# ─── Python / Backend ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment / secrets
+backend/.env
+backend/.env.*
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Distribution / build
+build/
 dist/
-.cache/
+*.egg-info/
+.eggs/
+
+# ─── Node / Frontend ─────────────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.cache/
+
+# Environment / secrets
+.env
 .env.local
+.env.*.local
+frontend/.env.development
+frontend/.env.development.local
+frontend/.env.production
+frontend/.env.production.local
+frontend/.env.staging
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── Firebase ────────────────────────────────────────────────────────────────
+.firebase/
+frontend/.firebase/
+frontend/.firebaserc
+frontend/firebase.json
+
+# ─── Editors ─────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
