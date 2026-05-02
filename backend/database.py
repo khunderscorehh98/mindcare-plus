@@ -6,6 +6,10 @@ import os
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./mindcare.db")
 
+# Railway provides plain mysql:// URLs; SQLAlchemy needs the pymysql dialect
+if DATABASE_URL.startswith("mysql://"):
+    DATABASE_URL = DATABASE_URL.replace("mysql://", "mysql+pymysql://", 1)
+
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine: Engine = create_engine(DATABASE_URL, echo=False, future=True, connect_args=connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)

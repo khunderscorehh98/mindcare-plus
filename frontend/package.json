@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
-    "build": "vue-cli-service build"
+    "build": "vue-cli-service build",
+    "start": "serve -s dist -l $PORT"
   },
   "dependencies": {
     "axios": "^1.12.2",
@@ -12,6 +13,7 @@
     "core-js": "^3.8.3",
     "date-fns": "^4.1.0",
     "register-service-worker": "^1.7.2",
+    "serve": "^14.2.4",
     "vue": "^2.6.14",
     "vue-chartjs": "^5.3.2",
     "vue-router": "^3.5.1",

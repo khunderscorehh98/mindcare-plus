@@ -7,3 +7,5 @@ passlib[bcrypt]
 pyjwt
 python-multipart
 pydantic[email]
+groq
+pymysql

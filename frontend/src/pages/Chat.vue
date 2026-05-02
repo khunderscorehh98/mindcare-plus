@@ -1,164 +1,139 @@
 <template>
   <default-layout>
+
     <template v-slot:header>
-      <v-row align="center">
-        <v-col cols="12" md="8">
-          <h2 class="subtitle-1 mb-0">
-            MindCare+ Chat
-          </h2>
-          <div class="text-caption grey--text">
-            Private, supportive, and stigma-free.
-          </div>
-        </v-col>
-        <v-col cols="12" md="4" class="text-md-right mt-2 mt-md-0">
-          <v-btn
-            :disabled="disableNewIfFree"
-            color="primary"
-            class="mr-2"
-            @click="newSession"
-          >
-            <v-icon left>mdi-plus</v-icon>
-            New Session
-          </v-btn>
-          <v-chip
-            v-if="plan !== 'premium'"
-            small
-            color="amber lighten-4"
-            class="text-uppercase"
-            label
-          >
-            Free plan: 1 session
+      <div class="mc-page-header d-flex align-center justify-space-between flex-wrap" style="gap: 12px">
+        <div>
+          <h2 style="font-size: 18px; font-weight: 600; color: #1A2332; margin: 0 0 2px">AI Chat</h2>
+          <div class="subtitle" style="color: #546E7A; font-size: 13px">Private, supportive, and stigma-free</div>
+        </div>
+        <div class="d-flex align-center" style="gap: 8px">
+          <v-chip v-if="plan !== 'premium'" small label color="#FFF8E1" style="color: #E65100; font-size: 11px; font-weight: 600">
+            Free: 1 session
           </v-chip>
-        </v-col>
-      </v-row>
+          <v-btn depressed small color="primary" :disabled="disableNewIfFree" @click="newSession">
+            <v-icon left small>mdi-plus</v-icon>New Session
+          </v-btn>
+        </div>
+      </div>
     </template>
 
     <v-row>
-      <!-- Sidebar: sessions -->
+      <!-- Session sidebar -->
       <v-col cols="12" md="4" lg="3">
-        <v-card outlined class="rounded-xl">
-          <v-card-title class="py-3">
-            <v-icon left color="primary">mdi-message-text</v-icon>
-            Sessions
+        <v-card elevation="1" class="mc-section-card">
+          <div class="d-flex align-center px-4 py-3" style="border-bottom: 1px solid #E1E8EF">
+            <v-icon small color="primary" class="mr-2">mdi-chat-outline</v-icon>
+            <span style="font-size: 13.5px; font-weight: 600; color: #1A2332">Sessions</span>
             <v-spacer />
-            <v-btn icon small :disabled="disableNewIfFree" @click="newSession">
-              <v-icon>mdi-plus</v-icon>
+            <v-btn icon x-small :disabled="disableNewIfFree" @click="newSession">
+              <v-icon small color="primary">mdi-plus</v-icon>
             </v-btn>
-          </v-card-title>
-          <v-divider />
+          </div>
 
-          <v-card-text v-if="sessionsLoading">
+          <div v-if="sessionsLoading" class="pa-4">
             <v-skeleton-loader type="list-item-two-line" />
-          </v-card-text>
+          </div>
 
-          <v-list v-else dense two-line>
-            <template v-if="sessions.length">
-              <v-list-item
-                v-for="s in sessions"
-                :key="s.id"
-                :class="{ 'grey lighten-4': s.id === activeId }"
-                @click="selectSession(s.id)"
-              >
-                <v-list-item-content>
-                  <v-list-item-title class="font-weight-medium">
-                    {{ s.title }}
-                  </v-list-item-title>
-                  <v-list-item-subtitle class="grey--text">
-                    {{ fmtDateTime(s.created_at) }}
-                  </v-list-item-subtitle>
-                </v-list-item-content>
+          <div v-else>
+            <div
+              v-for="s in sessions"
+              :key="s.id"
+              class="mc-session-item d-flex align-center px-4 py-3"
+              :style="{ background: s.id === activeId ? '#EEF3FB' : 'transparent', borderBottom: '1px solid #F4F7FC', cursor: 'pointer' }"
+              @click="selectSession(s.id)"
+            >
+              <div style="flex: 1; min-width: 0">
+                <div style="font-size: 13px; font-weight: 500; color: #1A2332; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ s.title }}</div>
+                <div style="font-size: 11px; color: #90A4AE">{{ fmtDateTime(s.created_at) }}</div>
+              </div>
+              <v-menu offset-y left>
+                <template v-slot:activator="{ on, attrs }">
+                  <v-btn icon x-small v-bind="attrs" v-on="on" @click.stop>
+                    <v-icon x-small color="grey">mdi-dots-vertical</v-icon>
+                  </v-btn>
+                </template>
+                <v-list dense style="border-radius: 8px">
+                  <v-list-item @click="renameSessionPrompt(s)">
+                    <v-list-item-icon><v-icon small>mdi-pencil-outline</v-icon></v-list-item-icon>
+                    <v-list-item-title style="font-size: 13px">Rename</v-list-item-title>
+                  </v-list-item>
+                  <v-list-item @click="deleteSession(s)">
+                    <v-list-item-icon><v-icon small color="error">mdi-delete-outline</v-icon></v-list-item-icon>
+                    <v-list-item-title style="font-size: 13px; color: #C62828">Delete</v-list-item-title>
+                  </v-list-item>
+                </v-list>
+              </v-menu>
+            </div>
 
-                <v-menu offset-y left>
-                  <template v-slot:activator="{ on, attrs }">
-                    <v-btn icon small v-bind="attrs" v-on="on">
-                      <v-icon small>mdi-dots-vertical</v-icon>
-                    </v-btn>
-                  </template>
-                  <v-list dense>
-                    <v-list-item @click="renameSessionPrompt(s)">
-                      <v-list-item-icon><v-icon small>mdi-rename-box</v-icon></v-list-item-icon>
-                      <v-list-item-title>Rename</v-list-item-title>
-                    </v-list-item>
-                    <v-list-item @click="deleteSession(s)">
-                      <v-list-item-icon><v-icon small color="red">mdi-delete</v-icon></v-list-item-icon>
-                      <v-list-item-title class="red--text">Delete</v-list-item-title>
-                    </v-list-item>
-                  </v-list>
-                </v-menu>
-              </v-list-item>
-            </template>
-
-            <v-list-item v-else>
-              <v-list-item-content>
-                <v-list-item-title class="text-body-2">
-                  No sessions yet. Create one to get started.
-                </v-list-item-title>
-              </v-list-item-content>
-            </v-list-item>
-          </v-list>
+            <div v-if="!sessions.length" class="pa-4 text-center" style="color: #90A4AE; font-size: 13px">
+              No sessions yet.<br>
+              <v-btn text x-small color="primary" @click="newSession">Create one</v-btn>
+            </div>
+          </div>
         </v-card>
       </v-col>
 
-      <!-- Main chat panel -->
+      <!-- Chat panel -->
       <v-col cols="12" md="8" lg="9">
-        <v-card elevation="2" class="rounded-xl">
-          <v-card-title class="pb-0">
-            <div>
-              <div class="text-h6 font-weight-semibold">{{ activeTitle }}</div>
-              <div class="text-caption grey--text">
-                {{ activeSubtitle }}
-              </div>
+        <v-card elevation="1" class="mc-section-card">
+          <!-- Chat header -->
+          <div class="d-flex align-center px-4 py-3" style="border-bottom: 1px solid #E1E8EF">
+            <div style="width: 36px; height: 36px; border-radius: 8px; background: #E3F2FD; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-right: 12px">
+              <v-icon small color="primary">mdi-robot-outline</v-icon>
             </div>
-            <v-spacer />
-            <v-btn small text color="primary" v-if="activeId" @click="renameSessionPrompt(activeSession)">
-              <v-icon left small>mdi-rename-box</v-icon>
-              Rename
+            <div style="flex: 1; min-width: 0">
+              <div style="font-size: 14px; font-weight: 600; color: #1A2332">{{ activeTitle }}</div>
+              <div style="font-size: 12px; color: #90A4AE">{{ activeSubtitle }}</div>
+            </div>
+            <v-btn v-if="activeId" text x-small color="primary" @click="renameSessionPrompt(activeSession)">
+              <v-icon left x-small>mdi-pencil-outline</v-icon>Rename
             </v-btn>
-          </v-card-title>
+          </div>
 
-          <v-divider class="my-2"></v-divider>
+          <!-- Messages -->
+          <div ref="scroll" style="height: 58vh; overflow-y: auto; background: #F8FAFC; padding: 16px">
+            <chat-message
+              v-for="(m, i) in uiMessages"
+              :key="i"
+              :isUser="m.role === 'user'"
+              :text="m.content"
+              :timestamp="fmtDateTime(m.created_at)"
+            />
+          </div>
 
-          <v-card-text>
-            <div ref="scroll" class="px-2" style="max-height: 62vh; overflow-y: auto;">
-              <chat-message
-                v-for="(m, i) in uiMessages"
-                :key="i"
-                :isUser="m.role === 'user'"
-                :text="m.content"
-                :timestamp="fmtDateTime(m.created_at)"
-              />
-            </div>
+          <!-- Loading bar -->
+          <v-progress-linear v-if="loading" indeterminate color="primary" height="2" />
 
-            <div v-if="loading" class="mt-2">
-              <v-progress-linear indeterminate color="primary" />
-            </div>
-
-            <div class="mt-2">
-              <message-input :loading="loading" @send="handleSend" />
-            </div>
-          </v-card-text>
+          <!-- Input area -->
+          <div class="pa-3" style="border-top: 1px solid #E1E8EF">
+            <message-input :loading="loading" @send="handleSend" />
+          </div>
         </v-card>
       </v-col>
     </v-row>
 
     <!-- Rename dialog -->
     <v-dialog v-model="renameDlg.show" max-width="420">
-      <v-card>
-        <v-card-title class="headline">Rename session</v-card-title>
-        <v-card-text>
+      <v-card style="border-radius: 12px">
+        <div class="px-5 py-4" style="border-bottom: 1px solid #E1E8EF">
+          <div style="font-size: 16px; font-weight: 600; color: #1A2332">Rename session</div>
+        </div>
+        <div class="pa-5">
           <v-text-field
             v-model="renameDlg.title"
-            dense outlined autofocus
-            label="Title"
+            outlined dense autofocus
+            label="Session name"
+            background-color="white"
           />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn text @click="renameDlg.show = false">Cancel</v-btn>
-          <v-btn color="primary" @click="confirmRename">Save</v-btn>
-        </v-card-actions>
+        </div>
+        <div class="d-flex justify-end px-5 pb-4" style="gap: 8px">
+          <v-btn outlined @click="renameDlg.show = false">Cancel</v-btn>
+          <v-btn depressed color="primary" @click="confirmRename">Save</v-btn>
+        </div>
       </v-card>
     </v-dialog>
+
   </default-layout>
 </template>
 
@@ -177,104 +152,75 @@ export default {
     sessionsLoading: false,
     messages: [],
     loading: false,
-
     activeId: null,
-
-    renameDlg: {
-      show: false,
-      id: null,
-      title: '',
-    },
+    renameDlg: { show: false, id: null, title: '' },
   }),
   computed: {
     ...mapGetters(['plan']),
-    activeSession() {
-      return this.sessions.find(s => s.id === this.activeId) || null
-    },
-    activeTitle() {
-      return (this.activeSession && this.activeSession.title) || 'New conversation'
-    },
-    activeSubtitle() {
-      if (!this.activeSession) return 'Start a chat or create a session'
+    activeSession ()   { return this.sessions.find(s => s.id === this.activeId) || null },
+    activeTitle ()     { return (this.activeSession && this.activeSession.title) || 'New conversation' },
+    activeSubtitle ()  {
+      if (!this.activeSession) return 'Select a session or create a new one'
       const s = this.activeSession
       const bits = []
-      if (s.mood_at_start) bits.push(`mood: ${s.mood_at_start}`)
-      if (s.stress_at_start !== null && s.stress_at_start !== undefined) bits.push(`stress: ${s.stress_at_start}`)
-      const meta = bits.join(' • ')
-      return meta || 'Session saved'
+      if (s.mood_at_start)  bits.push(`Mood: ${s.mood_at_start}`)
+      if (s.stress_at_start != null) bits.push(`Stress: ${s.stress_at_start}/10`)
+      return bits.join(' • ') || 'MindCare+ AI • Powered by Llama3'
     },
-    uiMessages() {
-      // fallback starter message if empty
+    uiMessages () {
       if (!this.messages.length) {
-        return [{
-          role: 'assistant',
-          content: 'Hi, how are you feeling today?',
-          created_at: new Date().toISOString(),
-        }]
+        return [{ role: 'assistant', content: 'Hi there. How are you feeling today? I\'m here to listen and support you.', created_at: new Date().toISOString() }]
       }
       return this.messages
     },
-    disableNewIfFree() {
-      return this.plan !== 'premium' && this.sessions.length >= 1
-    },
+    disableNewIfFree () { return this.plan !== 'premium' && this.sessions.length >= 1 },
   },
-  async created() {
+  async created () {
     await this.loadSessions()
-    // select session via query ?session=ID if provided
     const qId = Number(this.$route.query.session || 0) || null
     if (qId && this.sessions.some(s => s.id === qId)) {
       this.selectSession(qId)
     } else if (this.sessions.length) {
       this.selectSession(this.sessions[0].id)
     } else {
-      // no sessions yet: stay in stateless mode, will use /chat until a session is created
       this.messages = []
     }
   },
   methods: {
-    // sessions
-    async loadSessions() {
+    async loadSessions () {
       this.sessionsLoading = true
       try {
         const { data } = await api.api.get('/chat/sessions')
         this.sessions = Array.isArray(data) ? data : []
-      } catch (e) {
-        this.sessions = []
-      } finally {
-        this.sessionsLoading = false
-      }
+      } catch { this.sessions = [] } finally { this.sessionsLoading = false }
     },
-    async newSession() {
+    async newSession () {
       if (this.disableNewIfFree) return
       try {
         const { data } = await api.api.post('/chat/sessions', { title: 'New session' })
         await this.loadSessions()
         this.selectSession(data.id)
-      } catch (e) {
-        this.$toast && this.$toast.error('Could not create session')
-      }
+      } catch { /* silently fail */ }
     },
-    async selectSession(id) {
+    async selectSession (id) {
       if (!id) return
       this.activeId = id
       this.$router.replace({ query: { session: String(id) } }).catch(() => {})
       await this.loadMessages()
     },
-    async loadMessages() {
+    async loadMessages () {
       if (!this.activeId) return
       try {
         const { data } = await api.api.get(`/chat/sessions/${this.activeId}/messages`)
         this.messages = Array.isArray(data) ? data : []
         this.$nextTick(this.autoscroll)
-      } catch (e) {
-        this.messages = []
-      }
+      } catch { this.messages = [] }
     },
-    renameSessionPrompt(s) {
+    renameSessionPrompt (s) {
       if (!s) return
       this.renameDlg = { show: true, id: s.id, title: s.title || '' }
     },
-    async confirmRename() {
+    async confirmRename () {
       try {
         const title = (this.renameDlg.title || '').trim()
         if (title) {
@@ -285,14 +231,12 @@ export default {
         this.renameDlg.show = false
       }
     },
-    async deleteSession(s) {
+    async deleteSession (s) {
       if (!s) return
-      const yes = window.confirm('Delete this session and all its messages?')
-      if (!yes) return
+      if (!window.confirm('Delete this session and all messages?')) return
       try {
         await api.api.delete(`/chat/sessions/${s.id}`)
         await this.loadSessions()
-        // pick another session or clear
         if (this.sessions.length) {
           this.selectSession(this.sessions[0].id)
         } else {
@@ -300,68 +244,35 @@ export default {
           this.messages = []
           this.$router.replace({ query: {} }).catch(() => {})
         }
-      } catch (e) {
-        this.$toast && this.$toast.error('Failed to delete session')
-      }
+      } catch { /* silently fail */ }
     },
-
-    // chat send
-    async handleSend(text) {
+    async handleSend (text) {
       const content = (text || '').trim()
       if (!content) return
-
-      // optimistic append
       const now = new Date().toISOString()
-      const pushAndScroll = (msg) => {
-        this.messages.push(msg)
-        this.$nextTick(this.autoscroll)
-      }
-      const userMsg = { role: 'user', content, created_at: now }
-      pushAndScroll(userMsg)
-
+      const push = (msg) => { this.messages.push(msg); this.$nextTick(this.autoscroll) }
+      push({ role: 'user', content, created_at: now })
       this.loading = true
       try {
         if (this.activeId) {
-          // sessioned chat
-          const { data } = await api.api.post(`/chat/sessions/${this.activeId}/send`, {
-            message: content,
-            history: [], // backend rebuilds from DB; keep empty for clarity
-          })
-          const replyText = (data && data.reply) || '…'
-          pushAndScroll({ role: 'assistant', content: replyText, created_at: new Date().toISOString() })
+          const { data } = await api.api.post(`/chat/sessions/${this.activeId}/send`, { message: content, history: [] })
+          push({ role: 'assistant', content: (data && data.reply) || '…', created_at: new Date().toISOString() })
         } else {
-          // stateless fallback
           const replyText = await api.chat(content, [])
-          pushAndScroll({ role: 'assistant', content: replyText || '…', created_at: new Date().toISOString() })
+          push({ role: 'assistant', content: replyText || '…', created_at: new Date().toISOString() })
         }
-      } catch (e) {
-        // revert optimistic user message? we’ll keep it and show an error bot bubble
-        pushAndScroll({
-          role: 'assistant',
-          content: 'Sorry, I could not reach the server. Please try again.',
-          created_at: new Date().toISOString(),
-        })
-        // also log for devs
-        /* eslint-disable no-console */
-        console.error('chat send failed', e && e.response ? e.response : e)
+      } catch {
+        push({ role: 'assistant', content: 'Sorry, I could not reach the server. Please try again.', created_at: new Date().toISOString() })
       } finally {
         this.loading = false
       }
     },
-
-    // ui helpers
-    fmtDateTime(ts) {
-      try { return new Date(ts).toLocaleString() } catch { return ts }
-    },
-    autoscroll() {
-      const el = this.$refs.scroll
-      if (!el) return
-      el.scrollTop = el.scrollHeight
-    },
+    fmtDateTime (ts) { try { return new Date(ts).toLocaleString() } catch { return ts } },
+    autoscroll () { const el = this.$refs.scroll; if (el) el.scrollTop = el.scrollHeight },
   },
 }
 </script>
 
 <style scoped>
-.session-item { cursor: pointer; }
+.mc-session-item:hover { background: #F4F7FC !important; }
 </style>

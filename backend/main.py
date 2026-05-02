@@ -1,8 +1,8 @@
 import os
-import shutil
-import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
+
+from groq import Groq
 
 from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,8 +37,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load context + model name (path-safe)
-MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+# Load context + model name
+MODEL = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+
 CONTEXT_PATH = Path(__file__).parent / "mindcare_context.txt"
 try:
     MINDCARE_CONTEXT = CONTEXT_PATH.read_text(encoding="utf-8")
@@ -48,34 +51,20 @@ except FileNotFoundError:
 
 # -------------------- Helpers --------------------
 
-def run_ollama(model: str, prompt: str, timeout_sec: int = 120) -> str:
-    """Run `ollama run <model>` and return stdout (trimmed) or '' on error.
-    Includes basic logging and a PATH sanity check.
-    """
-    if not shutil.which("ollama"):
-        print("[ollama] binary not found on PATH")
+def call_groq(messages: list, timeout_sec: int = 30) -> str:
+    if not groq_client:
+        print("[groq] client not initialized — check GROQ_API_KEY")
         return ""
     try:
-        res = subprocess.run(
-            ["ollama", "run", model],
-            input=prompt,
-            text=True,
-            capture_output=True,
+        completion = groq_client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            max_tokens=1024,
             timeout=timeout_sec,
         )
-        print(
-            "[ollama] rc:", res.returncode,
-            "| stdout:", (res.stdout or "").strip()[:120],
-            "| stderr:", (res.stderr or "").strip()[:120],
-        )
-        if res.returncode != 0:
-            return ""
-        return (res.stdout or "").strip()
-    except subprocess.TimeoutExpired:
-        print(f"[ollama] timeout after {timeout_sec}s")
-        return ""
+        return completion.choices[0].message.content.strip()
     except Exception as e:
-        print("[ollama] unexpected error:", e)
+        print("[groq] error:", e)
         return ""
 
 
@@ -155,35 +144,32 @@ def billing_upgrade(body: dict, u: User = Depends(auth_user), db: Session = Depe
 
 # -------------------- Chat prompt builder --------------------
 
-def build_prompt(message: str, history: list[ChatTurn] | None = None) -> str:
-    hist = ""
+def build_messages(message: str, history=None) -> list:
+    msgs = [{
+        "role": "system",
+        "content": (
+            "You are MindCare+, an AI chatbot for mental health in Brunei. "
+            "Use the following knowledge when answering. "
+            "If the topic is unrelated, gently redirect to mental health support.\n\n"
+            f"Knowledge:\n{MINDCARE_CONTEXT}"
+        ),
+    }]
     for turn in (history or []):
-        who = "User" if turn.role == "user" else "AI"
-        hist += f"{who}: {turn.content}\n"
-    return f"""
-You are MindCare+, an AI chatbot for mental health in Brunei.
-Use the following knowledge when answering. If unrelated, gently redirect to mental health support.
-
-Knowledge:
-{MINDCARE_CONTEXT}
-
-Conversation so far:
-{hist}
-User: {message}
-AI:
-"""
+        role = turn["role"] if isinstance(turn, dict) else turn.role
+        content = turn["content"] if isinstance(turn, dict) else turn.content
+        role_str = role.value if hasattr(role, "value") else str(role)
+        msgs.append({"role": role_str, "content": content})
+    msgs.append({"role": "user", "content": message})
+    return msgs
 
 # -------------------- Routes: Public Chat (stateless demo) --------------------
 
 @app.post("/chat", response_model=ChatOut)
 def chat(body: ChatIn, db: Session = Depends(get_db)):
-    prompt = build_prompt(body.message, body.history)
-    reply = run_ollama(MODEL, prompt)
+    messages = build_messages(body.message, body.history)
+    reply = call_groq(messages)
     if not reply or reply.strip() in {".", "...", "…"}:
-        reply = (
-            "I couldn’t generate a reply right now. If this keeps happening, "
-            f"please check that the Ollama model ‘{MODEL}’ is installed and reachable."
-        )
+        reply = "I couldn’t generate a reply right now. Please try again shortly."
     return {"reply": reply}
 
 # -------------------- Routes: Chat Sessions (multi-session, persisted) --------------------
@@ -303,8 +289,8 @@ def send_in_session(sid: int, body: ChatIn, u: User = Depends(auth_user), db: Se
     )
     history = [{"role": m.role, "content": m.content} for m in prev_msgs]
 
-    prompt = build_prompt(body.message, history)
-    reply = run_ollama(MODEL, prompt) or "I couldn’t generate a reply right now."
+    messages = build_messages(body.message, history)
+    reply = call_groq(messages) or "I couldn’t generate a reply right now."
 
     # Persist both turns
     db.add(ChatMessage(user_id=u.id, session_id=sid, role=ChatRole.user, content=body.message))
